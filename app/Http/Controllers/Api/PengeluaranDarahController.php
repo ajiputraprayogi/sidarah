@@ -14,9 +14,35 @@ class PengeluaranDarahController extends Controller
      */
     public function index()
     {
-        $data = DB::table('stok_darah')
-            ->select('golongan_darah', DB::raw('SUM(jumlah) as total_stok'))
-            ->groupBy('golongan_darah')
+        // Total stok per golongan
+        $stok = DB::table('stok_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_stok')
+            )
+            ->groupBy('golongan_darah');
+
+        // Total pengeluaran per golongan
+        $pengeluaran = DB::table('pengeluaran_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_pengeluaran')
+            )
+            ->groupBy('golongan_darah');
+
+        // Join hasil agregasi
+        $data = DB::query()
+            ->fromSub($stok, 's')
+            ->leftJoinSub($pengeluaran, 'p', function ($join) {
+                $join->on('s.golongan_darah', '=', 'p.golongan_darah');
+            })
+            ->select(
+                's.golongan_darah',
+                's.total_stok',
+                DB::raw('COALESCE(p.total_pengeluaran, 0) as total_pengeluaran'),
+                DB::raw('(s.total_stok - COALESCE(p.total_pengeluaran, 0)) as sisa_stok')
+            )
+            ->orderBy('s.golongan_darah', 'asc')
             ->get();
 
         return response()->json([
@@ -24,6 +50,28 @@ class PengeluaranDarahController extends Controller
             'data' => $data
         ]);
     }
+
+    public function list(Request $request)
+    {
+        $data = DB::table('pengeluaran_darah')
+            ->select(
+                'id',
+                'golongan_darah',
+                'jumlah',
+                'tanggal_pengeluaran',
+                'created_at'
+            )
+            ->orderBy('tanggal_pengeluaran', 'desc')
+            ->orderBy('id', 'desc')
+            ->paginate(10); // 10 data per halaman
+
+        return response()->json([
+            'status' => true,
+            'data' => $data
+        ]);
+    }
+
+
 
     /**
      * Show the form for creating a new resource.
@@ -39,9 +87,17 @@ class PengeluaranDarahController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'stok_id' => 'required|integer|exists:stok_darah,id',
+            'golongan_darah' => 'required|in:A,B,AB,O',
             'jumlah' => 'required|integer|min:1',
             'tanggal_pengeluaran' => 'required|date',
+        ], [
+            'golongan_darah.required' => 'Golongan darah wajib diisi',
+            'golongan_darah.in' => 'Golongan darah harus A, B, AB, atau O',
+            'jumlah.required' => 'Jumlah wajib diisi',
+            'jumlah.integer' => 'Jumlah harus berupa angka',
+            'jumlah.min' => 'Jumlah minimal 1',
+            'tanggal_pengeluaran.required' => 'Tanggal wajib diisi',
+            'tanggal_pengeluaran.date' => 'Format tanggal tidak valid',
         ]);
 
         if ($validator->fails()) {
@@ -52,31 +108,34 @@ class PengeluaranDarahController extends Controller
             ], 422);
         }
 
-        // Ambil stok
-        $stok = DB::table('stok_darah')->where('id', $request->stok_id)->first();
+        // ✅ Hitung TOTAL STOK berdasarkan golongan
+        $totalStok = DB::table('stok_darah')
+            ->where('golongan_darah', $request->golongan_darah)
+            ->sum('jumlah');
 
-        // Cek stok cukup?
-        if ($stok->jumlah < $request->jumlah) {
+        // ✅ Hitung TOTAL PENGELUARAN berdasarkan golongan
+        $totalKeluar = DB::table('pengeluaran_darah')
+            ->where('golongan_darah', $request->golongan_darah)
+            ->sum('jumlah');
+
+        // ✅ Hitung SISA STOK
+        $sisaStok = $totalStok - $totalKeluar;
+
+        // ✅ Validasi stok cukup
+        if ($sisaStok < $request->jumlah) {
             return response()->json([
                 'status' => false,
-                'message' => 'Stok tidak mencukupi'
+                'message' => 'Stok tidak mencukupi. Sisa stok saat ini: ' . $sisaStok
             ], 400);
         }
 
-        // Simpan pengeluaran
+        // ✅ Simpan pengeluaran TANPA stok_id
         $id = DB::table('pengeluaran_darah')->insertGetId([
-            'stok_id' => $stok->id,
-            'golongan_darah' => $stok->golongan_darah,
+            'golongan_darah' => $request->golongan_darah,
             'jumlah' => $request->jumlah,
             'tanggal_pengeluaran' => $request->tanggal_pengeluaran,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
-
-        // Kurangi stok
-        DB::table('stok_darah')->where('id', $stok->id)->update([
-            'jumlah' => $stok->jumlah - $request->jumlah,
-            'updated_at' => now()
         ]);
 
         $data = DB::table('pengeluaran_darah')->where('id', $id)->first();
@@ -109,6 +168,7 @@ class PengeluaranDarahController extends Controller
      */
     public function update(Request $request, string $id)
     {
+        // Ambil data pengeluaran lama
         $data = DB::table('pengeluaran_darah')->where('id', $id)->first();
 
         if (!$data) {
@@ -121,6 +181,10 @@ class PengeluaranDarahController extends Controller
         $validator = Validator::make($request->all(), [
             'jumlah' => 'sometimes|required|integer|min:1',
             'tanggal_pengeluaran' => 'sometimes|required|date',
+        ], [
+            'jumlah.integer' => 'Jumlah harus berupa angka',
+            'jumlah.min' => 'Jumlah minimal 1',
+            'tanggal_pengeluaran.date' => 'Format tanggal tidak valid',
         ]);
 
         if ($validator->fails()) {
@@ -131,32 +195,37 @@ class PengeluaranDarahController extends Controller
             ], 422);
         }
 
-        // Jika jumlah diubah → sesuaikan stok
+        // ✅ Jika JUMLAH diubah → validasi ulang ke total stok
         if ($request->has('jumlah')) {
-            $stok = DB::table('stok_darah')->where('id', $data->stok_id)->first();
 
-            $selisih = $request->jumlah - $data->jumlah;
+            // Total stok per golongan
+            $totalStok = DB::table('stok_darah')
+                ->where('golongan_darah', $data->golongan_darah)
+                ->sum('jumlah');
 
-            // Jika selisih > stok → stok kurang
-            if ($selisih > 0 && $stok->jumlah < $selisih) {
+            // Total pengeluaran per golongan
+            $totalKeluar = DB::table('pengeluaran_darah')
+                ->where('golongan_darah', $data->golongan_darah)
+                ->sum('jumlah');
+
+            // ✅ Kembalikan jumlah lama dulu sebelum validasi
+            $sisaStok = $totalStok - ($totalKeluar - $data->jumlah);
+
+            if ($sisaStok < $request->jumlah) {
                 return response()->json([
                     'status' => false,
-                    'message' => 'Stok tidak mencukupi untuk perubahan jumlah'
+                    'message' => 'Stok tidak mencukupi untuk perubahan. Sisa stok saat ini: ' . $sisaStok
                 ], 400);
             }
-
-            // Update stok sesuai selisih
-            DB::table('stok_darah')->where('id', $data->stok_id)->update([
-                'jumlah' => $stok->jumlah - $selisih,
-                'updated_at' => now()
-            ]);
         }
 
-        // Update data pengeluaran
-        DB::table('pengeluaran_darah')->where('id', $id)->update(array_merge(
-            $request->only(['jumlah', 'tanggal_pengeluaran']),
-            ['updated_at' => now()]
-        ));
+        // ✅ Update data pengeluaran
+        DB::table('pengeluaran_darah')
+            ->where('id', $id)
+            ->update(array_merge(
+                $request->only(['jumlah', 'tanggal_pengeluaran']),
+                ['updated_at' => now()]
+            ));
 
         $updated = DB::table('pengeluaran_darah')->where('id', $id)->first();
 
@@ -166,6 +235,7 @@ class PengeluaranDarahController extends Controller
             'data' => $updated
         ]);
     }
+
 
     /**
      * Remove the specified resource from storage.
@@ -181,10 +251,6 @@ class PengeluaranDarahController extends Controller
             ], 404);
         }
 
-        // Kembalikan stok
-        DB::table('stok_darah')->where('id', $data->stok_id)->increment('jumlah', $data->jumlah);
-
-        // Hapus data
         DB::table('pengeluaran_darah')->where('id', $id)->delete();
 
         return response()->json([
