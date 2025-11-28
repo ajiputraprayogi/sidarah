@@ -25,6 +25,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Pengeluaran Darah (CRUD)
     Route::apiResource('/pengeluaran-darah', PengeluaranDarahController::class);
+    Route::get('/pengeluaran-darah-list', [PengeluaranDarahController::class, 'list']);
 
     // Total Stok per Golongan Darah
     Route::get('/total-stok', [PengeluaranDarahController::class, 'index']);
