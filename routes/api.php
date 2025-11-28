@@ -28,4 +28,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Total Stok per Golongan Darah
     Route::get('/total-stok', [PengeluaranDarahController::class, 'index']);
+    Route::get('/chart-stok', [PengeluaranDarahController::class, 'chartStok']);
+    Route::get('/chart-pengeluaran', [PengeluaranDarahController::class, 'chartPengeluaran']);
+    Route::get('/chart-pemasukan', [PengeluaranDarahController::class, 'chartPemasukan']);
 });

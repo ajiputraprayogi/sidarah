@@ -4,7 +4,7 @@ namespace App\Http\Controllers\api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use DB;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class PengeluaranDarahController extends Controller
@@ -190,6 +190,114 @@ class PengeluaranDarahController extends Controller
         return response()->json([
             'status' => true,
             'message' => 'Data pengeluaran berhasil dihapus'
+        ]);
+    }
+
+    public function chartStok()
+    {
+        // Total stok per golongan
+        $stok = DB::table('stok_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_stok')
+            )
+            ->groupBy('golongan_darah');
+
+        // Total pengeluaran per golongan
+        $pengeluaran = DB::table('pengeluaran_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_pengeluaran')
+            )
+            ->groupBy('golongan_darah');
+
+        // Join hasil agregasi
+        $data = DB::query()
+            ->fromSub($stok, 's')
+            ->leftJoinSub($pengeluaran, 'p', function ($join) {
+                $join->on('s.golongan_darah', '=', 'p.golongan_darah');
+            })
+            ->select(
+                's.golongan_darah',
+                's.total_stok'
+            )
+            ->orderBy('s.golongan_darah', 'asc')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'data' => $data
+        ]);
+    }
+
+    public function chartPengeluaran()
+    {
+        // Total stok per golongan
+        $stok = DB::table('stok_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_stok')
+            )
+            ->groupBy('golongan_darah');
+
+        // Total pengeluaran per golongan
+        $pengeluaran = DB::table('pengeluaran_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_pengeluaran')
+            )
+            ->groupBy('golongan_darah');
+
+        // Join hasil agregasi
+        $data = DB::query()
+            ->fromSub($stok, 's')
+            ->leftJoinSub($pengeluaran, 'p', function ($join) {
+                $join->on('s.golongan_darah', '=', 'p.golongan_darah');
+            })
+            ->select(
+                's.golongan_darah',
+                'p.total_pengeluaran'
+            )
+            ->orderBy('s.golongan_darah', 'asc')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'data' => $data
+        ]);
+    }
+
+    public function chartPemasukan()
+    {
+        // Total stok per golongan
+        $stok = DB::table('stok_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_stok')
+            )
+            ->groupBy('golongan_darah');
+
+        // Total pengeluaran per golongan
+        $pengeluaran = DB::table('pengeluaran_darah')
+            ->select(
+                'golongan_darah',
+                DB::raw('SUM(jumlah) as total_pengeluaran')
+            )
+            ->groupBy('golongan_darah');
+
+        // Join hasil agregasi
+        $data = DB::query()
+            ->fromSub($stok, 's')
+            ->leftJoinSub($pengeluaran, 'p', function ($join) {
+                $join->on('s.golongan_darah', '=', 'p.golongan_darah');
+            })
+            ->select(DB::raw('s.golongan_darah,s.total_stok - IFNULL(p.total_pengeluaran, 0) as total_pemasukan'))
+            ->orderBy('s.golongan_darah', 'asc')
+            ->get();
+
+        return response()->json([
+            'status' => true,
+            'data' => $data
         ]);
     }
 }
