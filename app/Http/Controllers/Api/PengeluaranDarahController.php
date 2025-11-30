@@ -285,7 +285,8 @@ class PengeluaranDarahController extends Controller
             })
             ->select(
                 's.golongan_darah',
-                's.total_stok'
+                DB::raw('COALESCE(p.total_pengeluaran, 0) as total_pengeluaran'),
+                DB::raw('(s.total_stok - COALESCE(p.total_pengeluaran, 0)) as total_stok')
             )
             ->orderBy('s.golongan_darah', 'asc')
             ->get();
