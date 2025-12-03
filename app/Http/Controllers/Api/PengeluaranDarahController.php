@@ -336,12 +336,16 @@ class PengeluaranDarahController extends Controller
 
     public function chartPemasukan()
     {
+        $startDate = now()->subDays(30)->startOfDay();
+        $endDate   = now()->endOfDay();
+
         // Total stok per golongan
         $stok = DB::table('stok_darah')
             ->select(
                 'golongan_darah',
                 DB::raw('SUM(jumlah) as total_stok')
             )
+            ->wherebetween('tanggal', [$startDate, $endDate])
             ->groupBy('golongan_darah');
 
         // Total pengeluaran per golongan
@@ -350,6 +354,7 @@ class PengeluaranDarahController extends Controller
                 'golongan_darah',
                 DB::raw('SUM(jumlah) as total_pengeluaran')
             )
+            ->wherebetween('tanggal', [$startDate, $endDate])
             ->groupBy('golongan_darah');
 
         // Join hasil agregasi
